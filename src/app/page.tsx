@@ -1,68 +1,124 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+
+import {
+  RankingBoard,
+  type RankedPlayerView,
+} from "@/components/RankingBoard";
+import { RealmBackdrop } from "@/components/RealmBackdrop";
+import { UnlockGate } from "@/components/UnlockGate";
+
+type AppState = "loading" | "locked" | "open";
 
 export default function Home() {
+  const [state, setState] = useState<AppState>("loading");
+  const [players, setPlayers] = useState<RankedPlayerView[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  async function loadPlayers() {
+    const response = await fetch("/api/players");
+    if (response.status === 401) {
+      setState("locked");
+      setPlayers([]);
+      return;
+    }
+    if (!response.ok) {
+      throw new Error("failed");
+    }
+    const data = (await response.json()) as { players: RankedPlayerView[] };
+    setPlayers(data.players);
+    setState("open");
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      try {
+        const session = await fetch("/api/auth/session");
+        const data = (await session.json()) as { authenticated: boolean };
+        if (cancelled) {
+          return;
+        }
+        if (!data.authenticated) {
+          setState("locked");
+          return;
+        }
+        await loadPlayers();
+      } catch {
+        if (!cancelled) {
+          setLoadError("Não foi possível consultar o reino.");
+          setState("locked");
+        }
+      }
+    }
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleUnlocked() {
+    setLoadError(null);
+    try {
+      await loadPlayers();
+    } catch {
+      setLoadError("Pergaminho aberto, mas o ranking não carregou.");
+      setState("locked");
+    }
+  }
+
+  function handleLogout() {
+    setPlayers([]);
+    setState("locked");
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="realm-backdrop flex h-dvh max-h-dvh min-h-dvh flex-1 flex-col overflow-hidden">
+      <RealmBackdrop />
+      <main className="realm-content flex min-h-0 flex-1 flex-col items-center overflow-x-hidden overflow-y-auto overscroll-contain px-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {state === "loading" ? (
+          <div
+            className="animate-unfurl flex flex-col items-center justify-center gap-4 py-8"
+            role="status"
+            aria-live="polite"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+            <div
+              className="wax-seal animate-float-seal h-12 w-12 rounded-full"
+              aria-hidden
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <p className="font-display text-[0.7rem] uppercase tracking-[0.35em] text-[color:var(--ash)]/70">
+              Consultando os escribas…
+            </p>
+          </div>
+        ) : null}
+
+        {state === "locked" ? (
+          <div className="w-full max-w-full">
+            <UnlockGate onUnlocked={handleUnlocked} />
+          </div>
+        ) : null}
+
+        {state === "open" ? (
+          <div className="rank-court-shell w-full max-w-[1440px]">
+            <RankingBoard
+              players={players}
+              onPlayersChange={setPlayers}
+              onLogout={handleLogout}
+            />
+          </div>
+        ) : null}
+
+        {loadError ? (
+          <p
+            className="mt-3 max-w-sm px-2 text-center text-sm text-[color:var(--ash)]/75"
+            role="alert"
           >
-            Documentation
-          </a>
-        </div>
+            {loadError}
+          </p>
+        ) : null}
       </main>
     </div>
   );
