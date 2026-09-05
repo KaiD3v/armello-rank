@@ -1,36 +1,134 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Armello Rank
 
-## Getting Started
+Ranking privado para um grupo fixo de jogadores de [Armello](https://armello.com/). Marque vitórias no pergaminho, acompanhe posições em tempo real e abra o quadro com um código compartilhado — sem contas individuais.
 
-First, run the development server:
+## O que faz
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Acesso por código** — um `ACCESS_CODE` no ambiente destrava a sessão (cookie httpOnly assinado).
+- **Quadro dos heróis** — quatro jogadores fixos (Kaique, Pedro, Henrique, Afonso) com botões **+1** / **−1** (pontos nunca abaixo de 0).
+- **Ordenação** — pontos decrescentes; empate resolve por nome (`pt-BR`).
+- **Tempo real** — alterações de pontuação são propagadas aos navegadores conectados via WebSocket.
+- **UI medieval** — pergaminho, selos, trono atual e crônica da partida.
+
+Regras de domínio e contrato de API: [`APP_CONTEXT.md`](APP_CONTEXT.md).
+
+## Stack
+
+| Camada | Tecnologia |
+|--------|------------|
+| App | Next.js 16 (App Router), React 19, TypeScript |
+| Estilo | Tailwind CSS 4 + CSS customizado (Cinzel / Spectral) |
+| Dados | Prisma 6 + MongoDB |
+| Auth | JWT (`jose`) em cookie `armello_session` com `codeHash` |
+| Realtime | Servidor Node customizado (`server.ts`) + `ws` |
+| Testes | Jest (unitário) · Playwright (e2e) |
+
+> **Importante:** use sempre `npm run dev` / `npm start` (via `server.ts`). `next dev` / `next start` isolados **não** sobem o WebSocket.
+
+O realtime funciona em **um processo Node** (local, Railway, VPS). Não é adequado para Vercel/serverless multi-instância sem pub/sub compartilhado.
+
+## Estrutura
+
+```
+armello-rank/
+├── APP_CONTEXT.md          # Regras de negócio e contrato da API
+├── server.ts               # HTTP + Next + WebSocket (/api/ws)
+├── prisma/
+│   ├── schema.prisma       # Model Player
+│   └── seed.ts             # Quatro heróis iniciais
+├── public/realm/           # Arte (pergaminho, heróis, cenário)
+├── src/
+│   ├── app/
+│   │   ├── page.tsx        # SPA: unlock → ranking
+│   │   ├── layout.tsx
+│   │   ├── globals.css
+│   │   └── api/            # Route Handlers (auth, players)
+│   ├── components/         # Unlock, Ledger, Ranking, Trono, Crônica
+│   ├── hooks/              # useRankingRealtime
+│   └── lib/                # auth, ranking, prisma, realtime hub
+├── e2e/                    # Playwright
+└── .cursor/skills/         # Skills de agente (backend/frontend/QA)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Fluxo resumido
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. `POST /api/auth/unlock` com o código → cookie de sessão.
+2. `GET /api/players` → lista ranqueada.
+3. `POST /api/players/[id]/points` com `{ delta: 1 | -1 }` → atualiza Mongo e publica no hub WS.
+4. Clientes autenticados em `WS /api/ws` recebem o snapshot (e o `change` opcional para a crônica).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Instalação
 
-## Learn More
+### Pré-requisitos
 
-To learn more about Next.js, take a look at the following resources:
+- Node.js 20+ (recomendado)
+- Conta MongoDB (Atlas ou local) com database **`armello-rank`** na URI
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Passos
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+# 1. Dependências
+npm install
 
-## Deploy on Vercel
+# 2. Ambiente
+cp .env.example .env
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Edite `.env`:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```env
+MONGODB_URI="mongodb+srv://USER:PASSWORD@cluster.mongodb.net/armello-rank?retryWrites=true&w=majority"
+ACCESS_CODE="seu-codigo-compartilhado"
+ACCESS_SECRET="segredo-longo-e-aleatorio"
+PORT="3000"
+```
+
+```bash
+# 3. Schema + seed dos 4 jogadores
+npm run db:setup
+
+# 4. Desenvolvimento (Next + WebSocket)
+npm run dev
+```
+
+Abra [http://localhost:3000](http://localhost:3000) e entre com o `ACCESS_CODE`.
+
+### Produção
+
+```bash
+npm run build
+npm start
+```
+
+`npm start` executa `tsx server.ts --prod` na porta `PORT` (padrão `3000`).
+
+## Scripts úteis
+
+| Script | Descrição |
+|--------|-----------|
+| `npm run dev` | Servidor de desenvolvimento com WS |
+| `npm run build` | `prisma generate` + build Next |
+| `npm start` | Servidor de produção com WS |
+| `npm run db:push` | Aplica schema no Mongo |
+| `npm run db:seed` | Recria/atualiza os 4 jogadores |
+| `npm run db:setup` | push + seed |
+| `npm test` | Jest |
+| `npm run test:e2e` | Playwright (sobe `server.ts` automaticamente) |
+| `npm run lint` | ESLint |
+
+Para e2e, se necessário:
+
+```bash
+npx playwright install chromium
+```
+
+## Segurança (resumo)
+
+- Não há login por usuário: só o código compartilhado.
+- Trocar `ACCESS_CODE` invalida todas as sessões existentes.
+- Nunca committe `.env`; use `.env.example` como modelo.
+- Em produção o cookie usa `secure` quando `NODE_ENV=production`.
+
+## Licença
+
+Projeto privado / uso interno do clã.
