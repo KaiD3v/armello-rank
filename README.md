@@ -129,6 +129,32 @@ npx playwright install chromium
 - Nunca committe `.env`; use `.env.example` como modelo.
 - Em produção o cookie usa `secure` quando `NODE_ENV=production`.
 
+## Produção (Vercel + MongoDB Atlas)
+
+O erro `ReplicaSetNoPrimary` / `received fatal alert: InternalError` em `prisma.player.findMany()` significa que **a função serverless da Vercel não consegue falar com o Atlas** (quase sempre rede/IP, não bug de ranking).
+
+### Checklist no Atlas
+
+1. **Network Access** → *Add IP Address* → permita **`0.0.0.0/0`** (Allow access from anywhere). A Vercel usa IPs dinâmicos.
+2. Confirme que o cluster **não está pausado** (Free tier pausa após inatividade).
+3. URI com o database **`armello-rank`**:
+   `mongodb+srv://USER:PASSWORD@cluster...mongodb.net/armello-rank?retryWrites=true&w=majority`
+4. Se a senha tiver caracteres especiais (`@`, `#`, `/`, etc.), use [URL-encoding](https://developer.mozilla.org/en-US/docs/Glossary/Percent-encoding).
+
+### Checklist na Vercel
+
+Defina em *Project → Settings → Environment Variables* (Production):
+
+- `MONGODB_URI`
+- `ACCESS_CODE`
+- `ACCESS_SECRET`
+
+Depois faça **Redeploy**. Localmente rode `npm run db:setup` pelo menos uma vez contra o mesmo cluster para criar/seedar os jogadores.
+
+### Limite importante
+
+Nesta arquitetura o **WebSocket (`server.ts`) não roda na Vercel**. Unlock + ranking HTTP podem funcionar; sync em tempo real entre abas exige host Node contínuo (Railway/VPS) com `npm start`.
+
 ## Licença
 
 Projeto privado / uso interno do clã.

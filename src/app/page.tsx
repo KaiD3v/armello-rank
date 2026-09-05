@@ -11,17 +11,30 @@ import { UnlockGate } from "@/components/UnlockGate";
 
 type AppState = "loading" | "locked" | "open";
 
+const BOOTSTRAP_TIMEOUT_MS = 12_000;
+
+function fetchWithTimeout(input: string, ms = BOOTSTRAP_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(input, { signal: controller.signal }).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
 export default function Home() {
   const [state, setState] = useState<AppState>("loading");
   const [players, setPlayers] = useState<RankedPlayerView[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   async function loadPlayers() {
-    const response = await fetch("/api/players");
+    const response = await fetchWithTimeout("/api/players");
     if (response.status === 401) {
       setState("locked");
       setPlayers([]);
       return;
+    }
+    if (response.status === 503) {
+      throw new Error("database");
     }
     if (!response.ok) {
       throw new Error("failed");
@@ -36,7 +49,10 @@ export default function Home() {
 
     async function bootstrap() {
       try {
-        const session = await fetch("/api/auth/session");
+        const session = await fetchWithTimeout("/api/auth/session");
+        if (!session.ok) {
+          throw new Error("session");
+        }
         const data = (await session.json()) as { authenticated: boolean };
         if (cancelled) {
           return;
@@ -46,9 +62,16 @@ export default function Home() {
           return;
         }
         await loadPlayers();
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          setLoadError("Não foi possível consultar o reino.");
+          const isAbort =
+            error instanceof DOMException && error.name === "AbortError";
+          const isDb = error instanceof Error && error.message === "database";
+          setLoadError(
+            isDb || isAbort
+              ? "O reino não alcançou o banco de dados. Confira o MongoDB Atlas (Network Access / cluster) e as variáveis na Vercel."
+              : "Não foi possível consultar o reino.",
+          );
           setState("locked");
         }
       }
@@ -64,8 +87,13 @@ export default function Home() {
     setLoadError(null);
     try {
       await loadPlayers();
-    } catch {
-      setLoadError("Pergaminho aberto, mas o ranking não carregou.");
+    } catch (error) {
+      const isDb = error instanceof Error && error.message === "database";
+      setLoadError(
+        isDb
+          ? "Pergaminho aberto, mas o MongoDB Atlas não respondeu. Libere 0.0.0.0/0 no Network Access e confira MONGODB_URI."
+          : "Pergaminho aberto, mas o ranking não carregou.",
+      );
       setState("locked");
     }
   }
@@ -113,7 +141,7 @@ export default function Home() {
 
         {loadError ? (
           <p
-            className="mt-3 max-w-sm px-2 text-center text-sm text-[color:var(--ash)]/75"
+            className="mt-3 max-w-md px-2 text-center text-sm text-[color:var(--ash)]/80"
             role="alert"
           >
             {loadError}
