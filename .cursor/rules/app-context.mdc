@@ -1,0 +1,12 @@
+---
+description: Always read APP_CONTEXT.md before implementing; keep it synced with CORE/business rule changes.
+alwaysApply: true
+---
+
+# Armello Rank — App Context Rule
+
+1. Before implementing features or changing behavior, read [`APP_CONTEXT.md`](APP_CONTEXT.md).
+2. Treat `APP_CONTEXT.md` as the source of truth for players, scoring, access, APIs, and stack.
+3. If you change business rules or CORE (auth, scoring, ranking, player set, API contracts), update `APP_CONTEXT.md` in the same delivery.
+4. Prefer project skills under `.cursor/skills/armello-*` for scoped work (frontend, backend, QA, revisor).
+5. Do not invent extra players, login systems, or scoring modes unless `APP_CONTEXT.md` is updated first.
